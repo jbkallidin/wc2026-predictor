@@ -55,7 +55,7 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
     return map
   }, [points])
 
-  // Group matches by round
+  // Group matches into rounds, then within each round group by group letter
   const rounds = useMemo(() => {
     const grouped = new Map<RoundKey, Match[]>()
     matches.forEach(match => {
@@ -65,22 +65,29 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
     })
 
     return Array.from(grouped.entries())
-      .map(([label, roundMatches]) => ({
-        label,
-        matches: roundMatches,
-        status: getRoundStatus(roundMatches),
-        order: getRoundOrder(roundMatches[0]),
-      }))
+      .map(([label, roundMatches]) => {
+        // Within each round, sub-group by group letter (for group stage) or keep flat (knockout)
+        const subGroups = new Map<string, Match[]>()
+        roundMatches.forEach(m => {
+          const key = m.group ? `Group ${m.group}` : 'Matches'
+          if (!subGroups.has(key)) subGroups.set(key, [])
+          subGroups.get(key)!.push(m)
+        })
+
+        return {
+          label,
+          subGroups: Array.from(subGroups.entries()).sort(([a], [b]) => a.localeCompare(b)),
+          allMatches: roundMatches,
+          status: getRoundStatus(roundMatches),
+          order: getRoundOrder(roundMatches[0]),
+        }
+      })
       .sort((a, b) => a.order - b.order)
   }, [matches])
 
-  // Find active round index (first non-completed)
-  const activeRoundIndex = useMemo(() => {
-    const idx = rounds.findIndex(r => r.status !== 'completed')
-    return idx >= 0 ? idx : rounds.length - 1
-  }, [rounds])
-
-  const [openRound, setOpenRound] = useState<string | null>(() => rounds[activeRoundIndex]?.label ?? null)
+  // Default open: first non-completed round
+  const activeRoundLabel = rounds.find(r => r.status !== 'completed')?.label ?? rounds[rounds.length - 1]?.label
+  const [openRound, setOpenRound] = useState<string | null>(activeRoundLabel ?? null)
 
   async function savePrediction(matchId: string) {
     const pred = localPredictions[matchId]
@@ -114,6 +121,20 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
     }
   }
 
+  function updateHome(matchId: string, val: string) {
+    setLocalPredictions(prev => ({
+      ...prev,
+      [matchId]: { home: val, away: prev[matchId]?.away ?? '' }
+    }))
+  }
+
+  function updateAway(matchId: string, val: string) {
+    setLocalPredictions(prev => ({
+      ...prev,
+      [matchId]: { home: prev[matchId]?.home ?? '', away: val }
+    }))
+  }
+
   return (
     <div className="space-y-3">
       <div className="mb-6">
@@ -123,6 +144,7 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
 
       {rounds.map(round => (
         <div key={round.label} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          {/* Round header */}
           <button
             onClick={() => setOpenRound(openRound === round.label ? null : round.label)}
             className="w-full flex items-center justify-between px-5 py-4 text-left"
@@ -131,31 +153,39 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
               <span className="font-bold text-white">{round.label}</span>
               <StatusBadge status={round.status} />
             </div>
-            <span className="text-gray-500 text-sm">{openRound === round.label ? '▲' : '▼'}</span>
+            <span className="text-gray-500 text-xs">{openRound === round.label ? '▲' : '▼'}</span>
           </button>
 
           {openRound === round.label && (
-            <div className="border-t border-gray-800 divide-y divide-gray-800">
-              {round.matches.map(match => (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  prediction={localPredictions[match.id]}
-                  points={pointsMap[match.id]}
-                  isSaving={saving[match.id]}
-                  isSaved={saved[match.id]}
-                  error={errors[match.id]}
-                  isLocked={match.status !== 'scheduled'}
-                  onHomeChange={val => setLocalPredictions(prev => ({
-                    ...prev,
-                    [match.id]: { ...prev[match.id], home: val, away: prev[match.id]?.away ?? '' }
-                  }))}
-                  onAwayChange={val => setLocalPredictions(prev => ({
-                    ...prev,
-                    [match.id]: { ...prev[match.id], home: prev[match.id]?.home ?? '', away: val }
-                  }))}
-                  onSave={() => savePrediction(match.id)}
-                />
+            <div className="border-t border-gray-800">
+              {round.subGroups.map(([groupLabel, groupMatches]) => (
+                <div key={groupLabel}>
+                  {/* Group sub-header */}
+                  <div className="px-5 py-2 bg-gray-800/60 border-b border-gray-800">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                      {groupLabel}
+                    </span>
+                  </div>
+
+                  {/* Matches in this group */}
+                  <div className="divide-y divide-gray-800/70">
+                    {groupMatches.map(match => (
+                      <MatchCard
+                        key={match.id}
+                        match={match}
+                        prediction={localPredictions[match.id]}
+                        points={pointsMap[match.id]}
+                        isSaving={saving[match.id]}
+                        isSaved={saved[match.id]}
+                        error={errors[match.id]}
+                        isLocked={match.status !== 'scheduled'}
+                        onHomeChange={val => updateHome(match.id, val)}
+                        onAwayChange={val => updateAway(match.id, val)}
+                        onSave={() => savePrediction(match.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
