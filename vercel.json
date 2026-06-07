@@ -1,12 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/lock-rounds",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/sync-results",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 */6 * * *"
     }
   ]
 }
