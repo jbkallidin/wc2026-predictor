@@ -2,25 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #0a0a0f;
-  --foreground: #f0f0f5;
-}
-
 body {
-  background-color: #0a0a0f;
+  background-color: #0a0a12;
   color: #f0f0f5;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* Subtle pitch-line texture in background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(
+      180deg,
+      transparent,
+      transparent 60px,
+      rgba(255,255,255,0.012) 60px,
+      rgba(255,255,255,0.012) 61px
+    );
+  pointer-events: none;
+  z-index: 0;
+}
+
+#__next, main { position: relative; z-index: 1; }
+
 @layer utilities {
-  .text-gradient {
-    background: linear-gradient(135deg, #f97316, #ef4444);
+  .score-input {
+    @apply w-12 h-12 text-center text-lg font-black bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-orange-500/60 focus:ring-1 focus:ring-orange-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all;
+    -moz-appearance: textfield;
+  }
+  .score-input::-webkit-outer-spin-button,
+  .score-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .card {
+    @apply bg-gray-900/60 border border-white/8 rounded-2xl overflow-hidden;
+    backdrop-filter: blur(8px);
+  }
+
+  .gold-gradient {
+    background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF6B00 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-  }
-  .score-input {
-    @apply w-12 h-12 text-center text-xl font-bold bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed;
   }
 }
