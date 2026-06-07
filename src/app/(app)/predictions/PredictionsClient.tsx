@@ -1,14 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Match, Prediction, Points } from '@/lib/database.types'
+import { createClient } from '@/lib/supabase/client'
 import MatchCard from '@/components/MatchCard'
 
 interface Props {
   matches: Match[]
-  predictions: Prediction[]
-  points: Points[]
-  userId?: string
 }
 
 type RoundKey = string
@@ -37,23 +35,48 @@ function getRoundStatus(matches: Match[]): 'scheduled' | 'locked' | 'completed' 
   return 'scheduled'
 }
 
-export default function PredictionsClient({ matches, predictions, points }: Props) {
-  const [localPredictions, setLocalPredictions] = useState<Record<string, { home: string; away: string }>>(() => {
-    const map: Record<string, { home: string; away: string }> = {}
-    predictions.forEach(p => {
-      map[p.match_id] = { home: String(p.predicted_home), away: String(p.predicted_away) }
-    })
-    return map
-  })
+export default function PredictionsClient({ matches }: Props) {
+  const [localPredictions, setLocalPredictions] = useState<Record<string, { home: string; away: string }>>({})
+  const [pointsMap, setPointsMap] = useState<Record<string, Points>>({})
+  const [loading, setLoading] = useState(true)
+
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState<Record<string, boolean>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const pointsMap = useMemo(() => {
-    const map: Record<string, Points> = {}
-    points.forEach(p => { map[p.match_id] = p })
-    return map
-  }, [points])
+  // Fetch predictions and points client-side — ensures auth is always correct
+  useEffect(() => {
+    const supabase = createClient()
+
+    async function load() {
+      setLoading(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setLoading(false); return }
+
+      const [{ data: predictions }, { data: points }] = await Promise.all([
+        supabase.from('predictions').select('*').eq('user_id', user.id),
+        supabase.from('points').select('*').eq('user_id', user.id),
+      ])
+
+      if (predictions) {
+        const map: Record<string, { home: string; away: string }> = {}
+        ;(predictions as Prediction[]).forEach(p => {
+          map[p.match_id] = { home: String(p.predicted_home), away: String(p.predicted_away) }
+        })
+        setLocalPredictions(map)
+      }
+
+      if (points) {
+        const map: Record<string, Points> = {}
+        ;(points as Points[]).forEach(p => { map[p.match_id] = p })
+        setPointsMap(map)
+      }
+
+      setLoading(false)
+    }
+
+    load()
+  }, [])
 
   // Group matches into rounds, then within each round group by group letter
   const rounds = useMemo(() => {
@@ -66,7 +89,6 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
 
     return Array.from(grouped.entries())
       .map(([label, roundMatches]) => {
-        // Within each round, sub-group by group letter (for group stage) or keep flat (knockout)
         const subGroups = new Map<string, Match[]>()
         roundMatches.forEach(m => {
           const key = m.group ? `Group ${m.group}` : 'Matches'
@@ -142,7 +164,14 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
         <p className="text-gray-500 text-sm mt-1">1 pt correct result · 3 pts exact score</p>
       </div>
 
-      {rounds.map(round => (
+      {loading && (
+        <div className="text-center py-16 text-gray-600">
+          <div className="text-3xl mb-3 animate-pulse">⚽</div>
+          <p className="text-sm">Loading your predictions…</p>
+        </div>
+      )}
+
+      {!loading && rounds.map(round => (
         <div key={round.label} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           {/* Round header */}
           <button
@@ -160,14 +189,11 @@ export default function PredictionsClient({ matches, predictions, points }: Prop
             <div className="border-t border-gray-800">
               {round.subGroups.map(([groupLabel, groupMatches]) => (
                 <div key={groupLabel}>
-                  {/* Group sub-header */}
                   <div className="px-5 py-2 bg-gray-800/60 border-b border-gray-800">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                       {groupLabel}
                     </span>
                   </div>
-
-                  {/* Matches in this group */}
                   <div className="divide-y divide-gray-800/70">
                     {groupMatches.map(match => (
                       <MatchCard

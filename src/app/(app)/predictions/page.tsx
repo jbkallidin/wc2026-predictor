@@ -6,29 +6,12 @@ export const dynamic = 'force-dynamic'
 export default async function PredictionsPage() {
   const supabase = createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Only fetch matches server-side (public data, no auth complexity)
+  // Predictions and points are fetched client-side to ensure auth is always correct
+  const { data: matches } = await supabase
+    .from('matches')
+    .select('*')
+    .order('kickoff_time', { ascending: true })
 
-  const [matchesRes, predictionsRes, pointsRes] = await Promise.all([
-    supabase
-      .from('matches')
-      .select('*')
-      .order('kickoff_time', { ascending: true }),
-    supabase
-      .from('predictions')
-      .select('*')
-      .eq('user_id', user!.id),
-    supabase
-      .from('points')
-      .select('*')
-      .eq('user_id', user!.id),
-  ])
-
-  return (
-    <PredictionsClient
-      matches={matchesRes.data ?? []}
-      predictions={predictionsRes.data ?? []}
-      points={pointsRes.data ?? []}
-      userId={user!.id}
-    />
-  )
+  return <PredictionsClient matches={matches ?? []} />
 }
