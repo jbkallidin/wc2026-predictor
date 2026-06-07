@@ -6,8 +6,12 @@ export const dynamic = 'force-dynamic'
 export default async function PredictionsPage() {
   const supabase = createClient()
 
-  // Only fetch matches server-side (public data, no auth complexity)
-  // Predictions and points are fetched client-side to ensure auth is always correct
+  // Lock any rounds/matches whose kickoff time has passed.
+  // This runs on every page load as an instant fallback — the pg_cron
+  // job in Supabase also fires every minute for background coverage.
+  await supabase.rpc('lock_due_rounds')
+
+  // Fetch matches AFTER locking so the UI always reflects current status
   const { data: matches } = await supabase
     .from('matches')
     .select('*')
