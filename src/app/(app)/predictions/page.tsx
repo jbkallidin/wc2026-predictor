@@ -6,12 +6,33 @@ export const dynamic = 'force-dynamic'
 export default async function PredictionsPage() {
   const supabase = createClient()
 
-  // Lock any rounds/matches whose kickoff time has passed.
-  // This runs on every page load as an instant fallback — the pg_cron
-  // job in Supabase also fires every minute for background coverage.
+  // 1. Lock any rounds/matches whose kickoff time has passed
   await supabase.rpc('lock_due_rounds')
 
-  // Fetch matches AFTER locking so the UI always reflects current status
+  // 2. Auto-sync results if there are locked matches with no score yet
+  //    (fires silently — errors are non-fatal)
+  const { data: awaitingScores } = await supabase
+    .from('matches')
+    .select('id')
+    .eq('status', 'locked')
+    .is('home_score', null)
+    .limit(1)
+
+  if (awaitingScores && awaitingScores.length > 0 && process.env.FOOTBALL_DATA_API_KEY) {
+    try {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : 'http://localhost:3000'
+
+      await fetch(`${baseUrl}/api/cron/sync-results`, {
+        headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+      })
+    } catch {
+      // Non-fatal — predictions page still loads
+    }
+  }
+
+  // 3. Fetch matches AFTER locking + syncing
   const { data: matches } = await supabase
     .from('matches')
     .select('*')
