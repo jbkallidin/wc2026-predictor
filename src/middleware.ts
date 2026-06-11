@@ -27,12 +27,17 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  const publicRoutes = ['/login', '/signup']
+  // Routes accessible without being logged in
+  const publicRoutes = ['/login', '/signup', '/forgot-password', '/reset-password']
   if (!user && !publicRoutes.includes(pathname)) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && publicRoutes.includes(pathname)) {
+  // Routes a logged-in user should be bounced away from.
+  // NB: /reset-password is excluded — a user clicking the recovery link
+  // arrives with a temporary session and must be allowed to set a new password.
+  const authOnlyRedirect = ['/login', '/signup', '/forgot-password']
+  if (user && authOnlyRedirect.includes(pathname)) {
     return NextResponse.redirect(new URL('/predictions', request.url))
   }
 
