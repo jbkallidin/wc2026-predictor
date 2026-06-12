@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { requireAdmin } from '@/lib/supabase/admin-check'
 import { fetchFinishedMatches, normaliseName } from '@/lib/football-api'
 import { NextResponse } from 'next/server'
@@ -27,7 +27,10 @@ async function runSync() {
     )
   }
 
-  const supabase = createClient()
+  // Use the service-role client: this job is authenticated by CRON_SECRET
+  // (or requireAdmin above) and must bypass RLS to read/update matches
+  // and write points without a user session.
+  const supabase = createServiceClient()
 
   // 1. Fetch all FINISHED matches from the football API
   let apiMatches
