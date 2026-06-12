@@ -15,7 +15,38 @@ export async function GET(request: Request) {
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
+  // Diagnostic mode: compare raw API fixtures against pending DB matches
+  if (new URL(request.url).searchParams.get('debug') === '1') {
+    return runDebug()
+  }
   return runSync()
+}
+
+async function runDebug() {
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY
+  if (!apiKey) return NextResponse.json({ error: 'no api key' }, { status: 500 })
+  const supabase = createServiceClient()
+
+  const apiMatches = await fetchFinishedMatches(apiKey)
+  const { data: pending } = await supabase
+    .from('matches')
+    .select('home_team, away_team, kickoff_time')
+    .in('status', ['locked', 'scheduled'])
+    .is('home_score', null)
+
+  return NextResponse.json({
+    api: apiMatches.map(m => ({
+      home: m.homeTeam.name,
+      homeNorm: normaliseName(m.homeTeam.name),
+      away: m.awayTeam.name,
+      awayNorm: normaliseName(m.awayTeam.name),
+      utcDate: m.utcDate,
+      score: m.score.fullTime,
+    })),
+    pending: pending?.map(p => ({
+      home: p.home_team, away: p.away_team, kickoff: p.kickoff_time,
+    })),
+  })
 }
 
 async function runSync() {
