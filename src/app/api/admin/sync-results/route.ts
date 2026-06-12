@@ -99,15 +99,18 @@ async function runSync() {
     const apiAway = normaliseName(apiMatch.awayTeam.name)
     const apiKickoff = new Date(apiMatch.utcDate).getTime()
 
-    // Find matching DB row: same teams + kickoff within 3-hour window
-    // (accounts for scheduling changes and timezone drift)
+    // Find matching DB row: same teams + kickoff within a generous window.
+    // Each team pairing is unique in the group stage, so matching on the
+    // ordered team pair is reliable; the wide time window only guards against
+    // an unlikely knockout rematch (which would be weeks apart) while
+    // absorbing seed/schedule/timezone drift (observed up to several hours).
     const dbMatch = pendingMatches.find(m => {
       const dbHome = m.home_team
       const dbAway = m.away_team
       const dbKickoff = new Date(m.kickoff_time).getTime()
       const kickoffDiff = Math.abs(apiKickoff - dbKickoff)
       const teamsMatch = dbHome === apiHome && dbAway === apiAway
-      return teamsMatch && kickoffDiff < 3 * 60 * 60 * 1000
+      return teamsMatch && kickoffDiff < 48 * 60 * 60 * 1000
     })
 
     if (!dbMatch) continue
