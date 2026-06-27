@@ -51,7 +51,8 @@ const API_NAME_MAP: Record<string, string> = {
   'South Africa':                'South Africa',
 }
 
-export function normaliseName(name: string): string {
+export function normaliseName(name: string | null): string {
+  if (!name) return ''
   return API_NAME_MAP[name] ?? name
 }
 
