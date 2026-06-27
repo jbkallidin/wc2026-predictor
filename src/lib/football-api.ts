@@ -11,8 +11,9 @@ export interface ApiMatch {
   id: number
   utcDate: string
   status: string
-  homeTeam: { name: string; tla: string }
-  awayTeam: { name: string; tla: string }
+  stage?: string
+  homeTeam: { name: string | null; tla: string | null }
+  awayTeam: { name: string | null; tla: string | null }
   score: {
     fullTime: { home: number | null; away: number | null }
   }
@@ -57,6 +58,25 @@ export function normaliseName(name: string): string {
 export async function fetchFinishedMatches(apiKey: string): Promise<ApiMatch[]> {
   const res = await fetch(
     `${API_BASE}/competitions/${COMPETITION_CODE}/matches?status=FINISHED`,
+    {
+      headers: { 'X-Auth-Token': apiKey },
+      next: { revalidate: 0 },
+    }
+  )
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Football API error ${res.status}: ${text}`)
+  }
+
+  const data = await res.json()
+  return (data.matches ?? []) as ApiMatch[]
+}
+
+// Fetch ALL matches (any status/stage) — used to load knockout fixtures
+export async function fetchAllMatches(apiKey: string): Promise<ApiMatch[]> {
+  const res = await fetch(
+    `${API_BASE}/competitions/${COMPETITION_CODE}/matches`,
     {
       headers: { 'X-Auth-Token': apiKey },
       next: { revalidate: 0 },

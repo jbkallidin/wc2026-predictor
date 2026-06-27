@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireAdmin } from '@/lib/supabase/admin-check'
-import { fetchFinishedMatches, normaliseName } from '@/lib/football-api'
+import { fetchFinishedMatches, fetchAllMatches, normaliseName } from '@/lib/football-api'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
@@ -16,8 +16,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
   // Diagnostic mode: compare raw API fixtures against pending DB matches
-  if (new URL(request.url).searchParams.get('debug') === '1') {
+  const debug = new URL(request.url).searchParams.get('debug')
+  if (debug === '1') {
     return runDebug()
+  }
+  // Stage breakdown: show all API fixtures grouped by stage (for loading knockouts)
+  if (debug === 'stages') {
+    const apiKey = process.env.FOOTBALL_DATA_API_KEY
+    if (!apiKey) return NextResponse.json({ error: 'no api key' }, { status: 500 })
+    const all = await fetchAllMatches(apiKey)
+    const byStage: Record<string, number> = {}
+    all.forEach(m => { byStage[m.stage ?? 'UNKNOWN'] = (byStage[m.stage ?? 'UNKNOWN'] ?? 0) + 1 })
+    return NextResponse.json({
+      counts: byStage,
+      fixtures: all.map(m => ({
+        stage: m.stage,
+        status: m.status,
+        home: m.homeTeam.name,
+        away: m.awayTeam.name,
+        utcDate: m.utcDate,
+      })),
+    })
   }
   return runSync()
 }
