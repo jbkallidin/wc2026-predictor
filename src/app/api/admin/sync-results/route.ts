@@ -91,10 +91,6 @@ async function runSync() {
     return NextResponse.json({ error: msg }, { status: 502 })
   }
 
-  if (!apiMatches.length) {
-    return NextResponse.json({ synced: 0, message: 'No finished matches from API yet' })
-  }
-
   // 2. Get all our locked matches that don't have scores yet
   const { data: pendingMatches } = await supabase
     .from('matches')
@@ -102,15 +98,11 @@ async function runSync() {
     .eq('status', 'locked')
     .is('home_score', null)
 
-  if (!pendingMatches?.length) {
-    return NextResponse.json({ synced: 0, message: 'No locked matches awaiting scores' })
-  }
-
-  // 3. Match API results to our DB rows
+  // 3. Match API results to our group-stage DB rows
   let synced = 0
   const errors: string[] = []
 
-  for (const apiMatch of apiMatches) {
+  for (const apiMatch of pendingMatches?.length ? apiMatches : []) {
     const { fullTime } = apiMatch.score
     if (fullTime.home === null || fullTime.away === null) continue
 
@@ -123,7 +115,7 @@ async function runSync() {
     // ordered team pair is reliable; the wide time window only guards against
     // an unlikely knockout rematch (which would be weeks apart) while
     // absorbing seed/schedule/timezone drift (observed up to several hours).
-    const dbMatch = pendingMatches.find(m => {
+    const dbMatch = pendingMatches!.find(m => {
       const dbHome = m.home_team
       const dbAway = m.away_team
       const dbKickoff = new Date(m.kickoff_time).getTime()
@@ -162,13 +154,107 @@ async function runSync() {
     synced++
   }
 
+  // 6. Sync knockout fixtures (create/update teams, kickoff & scores by API id).
+  //    Runs every time so the bracket fills in as the draw is decided.
+  let knockout = { upserted: 0, completed: 0, errors: [] as string[] }
+  try {
+    knockout = await syncKnockoutFixtures(supabase, apiKey)
+  } catch (err: unknown) {
+    errors.push(`knockout sync: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
   return NextResponse.json({
     synced,
-    checked: apiMatches.length,
-    pending: pendingMatches.length,
-    errors: errors.length ? errors : undefined,
-    message: synced
-      ? `✓ Synced ${synced} result${synced > 1 ? 's' : ''} and calculated points`
-      : 'No new results to sync',
+    knockoutFixtures: knockout.upserted,
+    knockoutCompleted: knockout.completed,
+    errors: [...errors, ...knockout.errors].length ? [...errors, ...knockout.errors] : undefined,
+    message: `✓ Group results synced: ${synced}; knockout fixtures updated: ${knockout.upserted}`,
   })
+}
+
+// Maps football-data.org knockout stage names to our internal stage codes
+const KO_STAGE_MAP: Record<string, string> = {
+  LAST_32: 'r32',
+  LAST_16: 'r16',
+  QUARTER_FINALS: 'qf',
+  SEMI_FINALS: 'sf',
+  THIRD_PLACE: 'third',
+  FINAL: 'final',
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function syncKnockoutFixtures(supabase: any, apiKey: string) {
+  const all = await fetchAllMatches(apiKey)
+  const ko = all.filter(m => m.stage && KO_STAGE_MAP[m.stage])
+
+  let upserted = 0
+  let completed = 0
+  const errors: string[] = []
+
+  for (const m of ko) {
+    const stage = KO_STAGE_MAP[m.stage!]
+    const home = m.homeTeam.name ? normaliseName(m.homeTeam.name) : 'TBD'
+    const away = m.awayTeam.name ? normaliseName(m.awayTeam.name) : 'TBD'
+    const isFinished = m.status === 'FINISHED' && m.score.fullTime.home !== null
+
+    const { data: existing } = await supabase
+      .from('matches')
+      .select('id, home_score')
+      .eq('api_match_id', m.id)
+      .maybeSingle()
+
+    if (!existing) {
+      // New knockout fixture — insert it
+      const status = isFinished
+        ? 'completed'
+        : m.status === 'IN_PLAY' || m.status === 'PAUSED'
+        ? 'locked'
+        : 'scheduled'
+      const { data: inserted, error } = await supabase
+        .from('matches')
+        .insert({
+          api_match_id: m.id,
+          stage,
+          home_team: home,
+          away_team: away,
+          kickoff_time: m.utcDate,
+          home_score: isFinished ? m.score.fullTime.home : null,
+          away_score: isFinished ? m.score.fullTime.away : null,
+          status,
+        })
+        .select('id')
+        .single()
+      if (error) { errors.push(`insert ${home} v ${away}: ${error.message}`); continue }
+      upserted++
+      if (isFinished && inserted) {
+        await supabase.rpc('calculate_points_for_match', { p_match_id: inserted.id })
+        completed++
+      }
+    } else {
+      // Existing fixture — refresh teams/kickoff; set score once finished.
+      // Never downgrade a locked/completed status back to scheduled here;
+      // time-based locking is handled by lock_due_rounds.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const update: Record<string, any> = {
+        home_team: home,
+        away_team: away,
+        kickoff_time: m.utcDate,
+      }
+      const newlyFinished = isFinished && existing.home_score === null
+      if (newlyFinished) {
+        update.home_score = m.score.fullTime.home
+        update.away_score = m.score.fullTime.away
+        update.status = 'completed'
+      }
+      const { error } = await supabase.from('matches').update(update).eq('id', existing.id)
+      if (error) { errors.push(`update ${home} v ${away}: ${error.message}`); continue }
+      upserted++
+      if (newlyFinished) {
+        await supabase.rpc('calculate_points_for_match', { p_match_id: existing.id })
+        completed++
+      }
+    }
+  }
+
+  return { upserted, completed, errors }
 }
