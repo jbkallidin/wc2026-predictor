@@ -18,6 +18,7 @@ function getRoundLabel(match: Match): RoundKey {
     r16: 'Round of 16',
     qf: 'Quarter-finals',
     sf: 'Semi-finals',
+    third: 'Third-place Play-off',
     final: 'Final',
   }
   return labels[match.stage] ?? match.stage
@@ -25,7 +26,7 @@ function getRoundLabel(match: Match): RoundKey {
 
 function getRoundOrder(match: Match): number {
   if (match.stage === 'group') return match.matchday_round! - 1
-  const order: Record<string, number> = { r32: 3, r16: 4, qf: 5, sf: 6, final: 7 }
+  const order: Record<string, number> = { r32: 3, r16: 4, qf: 5, sf: 6, third: 7, final: 8 }
   return order[match.stage] ?? 10
 }
 
